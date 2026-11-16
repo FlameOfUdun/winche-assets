@@ -70,10 +70,10 @@ functions deploys:
 - `winche assets deploy <folder> [--channel production] -m "note"`: hashes the folder, uploads only new contents,
   publishes the release (and moves the channel).
 - `winche assets releases`, `winche assets release <n>` (files, sizes), `winche assets channels`.
-- `winche assets channel <name> <release>` (move / roll back), `winche assets channel:remove <name>`.
-- `winche assets rules validate | test | deploy | pull | diff` as for the other rules.
+- `winche assets channels:set <name> <release>` (move / roll back, asks before going back), `winche assets channels:remove <name>`, `winche assets diff`, `winche assets init`.
+- Rules: `winche rules validate | test | deploy | pull | diff --only assets`, as for the other rules.
 - `winche.json`: `"assets": { "folder": "assets", "channel": "production" }`, and `"assets": "assets.rules"` under `"rules"` (the rules commands handle it like the others).
-- Emulator: serves the folder as the release of every channel, saving a file publishes again; rules apply.
+- Emulator: publishes the folder to its channel at start and on every save; rules apply.
 
 ## Console
 
