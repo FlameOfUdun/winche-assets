@@ -120,7 +120,7 @@ await assets.sync();                                          // check now (also
 
 1. ✅ **Server package** (`Winche.Assets`, `.AspNetCore`): store, publishing, channels, reads with rules, location
    through Winche.Storage's providers (move = copy then switch), sweep, hooks; tests (Postgres, in-memory archives).
-2. **Winche Server:** the product (start, settings areas, rules repository, console API, CI scope), its tests.
+2. ✅ **Winche Server:** the product (start, settings areas, rules repository, console API, CI scope), its tests.
 3. **CLI:** deploy, releases, channels, rules; the emulator serving a folder; tests.
 4. **Console:** the Assets page (channels, releases and their differences, rules, settings).
 5. **Dart SDK** (`winche_assets`): sync, cache, reads, streams; tests; README.

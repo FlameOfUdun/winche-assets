@@ -44,7 +44,7 @@ public sealed class AssetArchives(SettingsArea<AssetLocationSettings>? area, Arc
     public async Task<IReadOnlyList<IArchive>> WriteTargetsAsync(CancellationToken ct)
     {
         var list = new List<IArchive> { await ActiveAsync(ct) };
-        if (State.Move is { } m) list.Add(await locations.GetAsync(m.To, ct));
+        if (State.Move is { Error: null } m) list.Add(await locations.GetAsync(m.To.Kind == "code" ? null : m.To, ct));
         return list;
     }
 
@@ -64,14 +64,52 @@ public sealed class AssetMoves(AssetArchives archives, IServiceProvider services
 
     public AssetLocationSettings State => Area.Current;
 
-    /// <summary>Starts copying every content to <paramref name="to"/>; it becomes the location once all are there.</summary>
-    public async Task StartAsync(ArchiveLocation to, string? by, CancellationToken ct)
+    /// <summary>
+    /// Starts copying every content to <paramref name="to"/> (its secret key kept in the project's secrets); it becomes
+    /// the location once all are there. "code" moves back to the app's own location.
+    /// </summary>
+    public async Task StartAsync(ArchiveLocation to, string? secretKey, string? by, string reason, CancellationToken ct)
     {
         if (State.Move is { Error: null }) throw new AssetsException("failed-precondition", "A move is under way: wait for it, or cancel it.");
         if (to.Problems() is { Count: > 0 } p) throw new AssetsException("invalid-argument", "That location isn't complete.", p);
-        if (to.Kind != "code" && to.Id == State.Active?.Id) throw new AssetsException("invalid-argument", "Assets are already kept there.");
-        archives.Locations.Build(to, null);   // a kind this app can build, or it throws now
-        await SaveAsync(State with { Move = new AssetMove(to, StartedAt: DateTimeOffset.UtcNow) }, by, $"Moving assets to {to.Describe()}", ct);
+        if ((to.Kind == "code" && State.Active is null) || (to.Kind != "code" && to.Id == State.Active?.Id))
+            throw new AssetsException("invalid-argument", "Assets are already kept there.");
+        if (to.Kind != "code")
+        {
+            archives.Locations.Build(to, secretKey);   // a kind this app can build, or it throws now
+            if (!string.IsNullOrEmpty(secretKey))
+            {
+                var secrets = services.GetService<SecretStore>() ?? throw new AssetsException("failed-precondition", "Keeping a secret key needs AddWincheConfig with a master key.");
+                await secrets.SetAsync(to.SecretName, secretKey, by, ct);
+            }
+        }
+        await SaveAsync(State with { Move = new AssetMove(to, StartedAt: DateTimeOffset.UtcNow) }, by, reason, ct);
+    }
+
+    /// <summary>Whether <paramref name="location"/> works for assets: write, read back, make a link, delete.</summary>
+    public async Task<IReadOnlyList<(string Step, string? Error)>> TestAsync(ArchiveLocation location, string? secretKey, CancellationToken ct)
+    {
+        var steps = new List<(string, string?)>();
+        if (location.Problems() is { Count: > 0 } p) return [("Settings", string.Join(" ", p))];
+        IArchive archive;
+        try { archive = location.Kind == "code" || secretKey is null ? await archives.Locations.GetAsync(location.Kind == "code" ? null : location, ct) : archives.Locations.Build(location, secretKey); }
+        catch (Exception ex) { return [("Connect", ex.GetBaseException().Message)]; }
+        if (archive is not IArchiveContent content) return [("Write", "The server can't write into this kind of location.")];
+        var key = $"winche-assets/test/{Guid.NewGuid():N}";
+        async Task<bool> Step(string name, Func<Task> body)
+        {
+            try { await body(); steps.Add((name, null)); return true; }
+            catch (Exception ex) when (!ct.IsCancellationRequested) { steps.Add((name, ex.GetBaseException().Message)); return false; }
+        }
+        _ = await Step("Write", () => content.WriteAsync(key, new MemoryStream("test"u8.ToArray()), "text/plain", ct))
+            && await Step("Read back", async () =>
+            {
+                await using var s = await content.OpenReadAsync(key, ct) ?? throw new InvalidOperationException("It wasn't there.");
+                using var r = new StreamReader(s);
+                if (await r.ReadToEndAsync(ct) != "test") throw new InvalidOperationException("It came back different.");
+            });
+        await Step("Delete", () => archive.DeleteAsync(key, ct));
+        return steps;
     }
 
     public async Task CancelAsync(string? by, CancellationToken ct)
@@ -104,7 +142,7 @@ internal sealed class AssetMoveWorker(AssetArchives archives, AssetMoves moves, 
     {
         if (archives.Area is not { } area || area.Current.Move is not { Error: null } move) return;
         var from = await archives.ActiveAsync(ct);
-        var to = await archives.Locations.GetAsync(move.To, ct);
+        var to = await archives.Locations.GetAsync(move.To.Kind == "code" ? null : move.To, ct);
         if (from is not IArchiveContent source || to is not IArchiveContent target)
         {
             await moves.SaveAsync(area.Current with { Move = move with { Error = "One of the locations can't be read or written by the server, so contents can't be moved." } }, null, "Move stopped", ct);

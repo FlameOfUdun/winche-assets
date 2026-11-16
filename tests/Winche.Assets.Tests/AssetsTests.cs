@@ -177,7 +177,8 @@ public sealed class AssetsTests(PostgresFixture pg)
         await using var app = await AssetsApp.StartAsync(await pg.NewDatabaseAsync(), settings: true);
         await app.PublishAsync(new() { ["translations/en.json"] = "en", ["translations/de.json"] = "de" });
         var moves = app.Service<AssetMoves>();
-        await moves.StartAsync(new ArchiveLocation { Id = "elsewhere", Kind = "s3", S3 = new S3LocationSettings { Bucket = "b", Region = "eu-west-2" } }, "admin@x", default);
+        await moves.StartAsync(new ArchiveLocation { Id = "elsewhere", Kind = "s3", S3 = new S3LocationSettings { Bucket = "b", Region = "eu-west-2" } }, null, "admin@x", "Moving", default);
+        Assert.All(await moves.TestAsync(moves.State.Move!.To, null, default), s => Assert.Null(s.Error));
         await WaitAsync(() => moves.State.Move is not null);
 
         // During the move, new contents go to both places.
