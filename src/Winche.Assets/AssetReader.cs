@@ -10,7 +10,7 @@ namespace Winche.Assets;
 public sealed record AssetListing(string Channel, int Release, DateTimeOffset PublishedAt, IReadOnlyDictionary<string, AssetFile> Files);
 
 /// <summary>How a caller gets a file's bytes: a signed link to the location, or a stream from the server.</summary>
-public sealed record AssetDownload(AssetFile File, string? Url, Func<CancellationToken, Task<Stream?>>? Open);
+public sealed record AssetDownload(AssetFile File, string? Url, Func<CancellationToken, Task<Stream?>>? Open, DateTimeOffset? ExpiresAt = null);
 
 /// <summary>
 /// What apps read, through the assets rules (default deny): a channel's listing (files they may <c>list</c>) and files
@@ -49,7 +49,7 @@ public sealed class AssetReader(AssetStore store, AssetArchives archives, RuleEn
             try
             {
                 var link = await archive.GenerateDownloadUrlAsync(key, new DownloadHeaders(file.MimeType, null, "private, max-age=31536000, immutable"), ct);
-                return new AssetDownload(file, link.Url, null);
+                return new AssetDownload(file, link.Url, null, link.ExpiresAt);
             }
             catch (NotSupportedException) { /* stream it instead */ }
         }

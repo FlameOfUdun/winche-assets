@@ -16,7 +16,8 @@ namespace Winche.Assets.AspNetCore;
 /// <item><c>GET releases/{n}/files/{**path}</c>: a file of a given release (never changes: cached for good).</item>
 /// </list>
 /// A file is a redirect to a short-lived signed link to the location, or (StreamFiles, or a location without links)
-/// its bytes, with its hash as ETag.
+/// its bytes, with its hash as ETag. With <c>?link=true</c> it's that link as JSON instead (<c>{url, expiresAt, hash,
+/// size, mimeType}</c>, url null when the bytes come from here), for clients that download it without their credentials.
 /// </summary>
 public static class AssetsEndpoints
 {
@@ -55,6 +56,11 @@ public static class AssetsEndpoints
         var etag = $"\"{d.File.Hash}\"";
         http.Response.Headers.ETag = etag;
         http.Response.Headers.CacheControl = immutable ? "private, max-age=31536000, immutable" : "private, no-cache";
+        if (http.Request.Query["link"] == "true")
+        {
+            http.Response.Headers.CacheControl = "no-store";   // the link expires; the answer mustn't outlive it
+            return Results.Json(new { url = d.Url, expiresAt = d.ExpiresAt, hash = d.File.Hash, size = d.File.Size, mimeType = d.File.MimeType });
+        }
         if (http.Request.Headers.IfNoneMatch.ToString() == etag) return Results.StatusCode(StatusCodes.Status304NotModified);
         if (d.Url is { } url) return Results.Redirect(url);
         if (HttpMethods.IsHead(http.Request.Method))

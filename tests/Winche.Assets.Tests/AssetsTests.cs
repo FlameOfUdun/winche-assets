@@ -115,6 +115,8 @@ public sealed class AssetsTests(PostgresFixture pg)
         var res = await app.Http.SendAsync(Get("/assets/v1/channels/production/files/translations/en.json"));
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
         Assert.Equal("{\"a\":1}", await res.Content.ReadAsStringAsync());
+        var streamed = await (await app.Http.SendAsync(Get("/assets/v1/channels/production/files/translations/en.json?link=true"))).Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(JsonValueKind.Null, streamed.GetProperty("url").ValueKind);   // no link: the bytes come from here
         Assert.Equal("application/json", res.Content.Headers.ContentType!.MediaType);
         Assert.Equal($"\"{r.Files["translations/en.json"].Hash}\"", res.Headers.ETag!.Tag);
         Assert.Equal(HttpStatusCode.NotModified, (await app.Http.SendAsync(Get("/assets/v1/channels/production/files/translations/en.json", etag: res.Headers.ETag.Tag))).StatusCode);
@@ -136,6 +138,14 @@ public sealed class AssetsTests(PostgresFixture pg)
         var res = await app.Http.SendAsync(Get("/assets/v1/channels/production/files/translations/en.json"));
         Assert.Equal(HttpStatusCode.Redirect, res.StatusCode);
         Assert.StartsWith($"mem://{AssetPaths.ContentKey(r.Files["translations/en.json"].Hash)}", res.Headers.Location!.ToString());
+
+        // Asked for the link itself (clients that download without their credentials): JSON, never cached.
+        var link = await app.Http.SendAsync(Get("/assets/v1/channels/production/files/translations/en.json?link=true"));
+        Assert.Equal(HttpStatusCode.OK, link.StatusCode);
+        var body = await link.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.StartsWith("mem://", body.GetProperty("url").GetString());
+        Assert.Equal(r.Files["translations/en.json"].Hash, body.GetProperty("hash").GetString());
+        Assert.Equal("no-store", link.Headers.CacheControl!.ToString());
     }
 
     [Fact]
