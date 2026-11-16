@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PackageId>Winche.Assets</PackageId>
+    <Description>Versioned app content (translations, pages, media): releases on channels, per-path rules, stored once by hash in a configurable location.</Description>
+    <PackageTags>assets;content;releases;channels;postgresql</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo"><_Parameter1>Winche.Assets.Tests</_Parameter1></AssemblyAttribute>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo"><_Parameter1>Winche.Assets.AspNetCore</_Parameter1></AssemblyAttribute>
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.5" />
+    <PackageReference Include="Npgsql" Version="10.0.2" />
+    <PackageReference Include="Npgsql.DependencyInjection" Version="10.0.2" />
+    <PackageReference Include="Winche.Core" Version="1.1.0" />
+    <PackageReference Include="Winche.Rules" Version="5.0.0" />
+    <PackageReference Include="Winche.Storage" Version="10.0.0" />
+  </ItemGroup>
+</Project>

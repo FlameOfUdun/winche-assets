@@ -18,8 +18,6 @@ publishes it from the server instead:
 - **Functions:** `ctx.assets.channel("production")` reads the same content with the server's rights. (The function's
   own files are `ctx.resources`, versioned with the deployment: a different thing.)
 
-Nothing here names an app; SmartAirway is only the first user (after its move to Winche Server).
-
 ## Model
 
 | Thing | Where | What |
@@ -120,15 +118,14 @@ await assets.sync();                                          // check now (also
 
 ## Steps
 
-1. **Server package** (`Winche.Assets`, `.AspNetCore`): store, publishing, channels, reads with rules, location
-   through Winche.Storage's providers, sweep, hooks; tests (Postgres + LocalStack, as Storage's).
+1. ✅ **Server package** (`Winche.Assets`, `.AspNetCore`): store, publishing, channels, reads with rules, location
+   through Winche.Storage's providers (move = copy then switch), sweep, hooks; tests (Postgres, in-memory archives).
 2. **Winche Server:** the product (start, settings areas, rules repository, console API, CI scope), its tests.
 3. **CLI:** deploy, releases, channels, rules; the emulator serving a folder; tests.
 4. **Console:** the Assets page (channels, releases and their differences, rules, settings).
 5. **Dart SDK** (`winche_assets`): sync, cache, reads, streams; tests; README.
 6. **Functions:** `Winche.Functions.Assets` (`ctx.assets`, triggers); tests.
-7. **SmartAirway** (after its move): its translations and media in a `smartairway` assets folder, the app on
-   `winche_assets`.
+7. **A first app:** its translations and media moved to an assets folder, the app on `winche_assets`.
 
 Each step is committed locally and released only when asked.
 

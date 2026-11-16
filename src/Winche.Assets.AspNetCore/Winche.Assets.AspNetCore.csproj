@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PackageId>Winche.Assets.AspNetCore</PackageId>
+    <Description>The /assets/v1 endpoints apps read Winche Assets from.</Description>
+    <PackageTags>assets;aspnetcore</PackageTags>
+  </PropertyGroup>
+  <ItemGroup><FrameworkReference Include="Microsoft.AspNetCore.App" /></ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Winche.Assets\Winche.Assets.csproj" />
+    <PackageReference Include="Winche.Core.AspNetCore" Version="1.1.0" />
+  </ItemGroup>
+</Project>
