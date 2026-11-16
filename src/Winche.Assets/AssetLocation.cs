@@ -51,7 +51,8 @@ public sealed class AssetArchives(SettingsArea<AssetLocationSettings>? area, Arc
     public string Describe() => State.Active?.Describe() ?? "the app's own location";
 
     internal SettingsArea<AssetLocationSettings>? Area => area;
-    internal ArchiveLocations Locations => locations;
+    /// <summary>Building archives for locations; <c>Code</c> is the app's own.</summary>
+    public ArchiveLocations Locations => locations;
 }
 
 /// <summary>Starting and cancelling a move (the console's guided steps); the worker carries it out.</summary>
