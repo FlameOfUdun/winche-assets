@@ -63,7 +63,8 @@ public sealed class AssetMoves(AssetArchives archives, IServiceProvider services
     private SettingsStore Store => services.GetService<SettingsStore>()
         ?? throw new AssetsException("failed-precondition", "Saving settings needs AddWincheConfig.");
 
-    public AssetLocationSettings State => Area.Current;
+    /// <summary>Where contents are kept and any move: the code's location when the settings aren't used.</summary>
+    public AssetLocationSettings State => archives.Area?.Current ?? new AssetLocationSettings();
 
     /// <summary>
     /// Starts copying every content to <paramref name="to"/> (its secret key kept in the project's secrets); it becomes
