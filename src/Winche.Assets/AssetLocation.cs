@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Winche.Core;
+using Winche.Secrets;
 using Winche.Storage.Interfaces;
 using Winche.Storage.Locations;
 
@@ -81,7 +82,7 @@ public sealed class AssetMoves(AssetArchives archives, IServiceProvider services
             archives.Locations.Build(to, secretKey);   // a kind this app can build, or it throws now
             if (!string.IsNullOrEmpty(secretKey))
             {
-                var secrets = services.GetService<SecretStore>() ?? throw new AssetsException("failed-precondition", "Keeping a secret key needs AddWincheConfig with a master key.");
+                var secrets = services.GetService<SecretStore>() is { Available: true } s ? s : throw new AssetsException("failed-precondition", "Keeping a secret key needs AddWincheConfig with a master key.");
                 await secrets.SetAsync(to.SecretName, secretKey, by, ct);
             }
         }

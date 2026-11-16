@@ -73,6 +73,7 @@ public static class AssetsServiceCollectionExtensions
         if (string.IsNullOrWhiteSpace(options.ConnectionString)) throw new InvalidOperationException("WincheAssetsOptions.ConnectionString is required.");
         if (options.Limits.Problems() is { Count: > 0 } p) throw new InvalidOperationException($"Assets limits: {string.Join(" ", p)}");
 
+        Winche.Secrets.SecretsServiceCollectionExtensions.AddWincheSecrets(services);   // keys of locations set in the console
         services.AddNpgsqlDataSource(options.ConnectionString, serviceKey: AssetStore.DataSourceKey);
         services.AddSingleton<AssetStore>();
         services.TryAddSingleton(TimeProvider.System);
