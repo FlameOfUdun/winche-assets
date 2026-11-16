@@ -124,7 +124,7 @@ await assets.sync();                                          // check now (also
 3. ✅ **CLI:** deploy, releases, channels, rules; the emulator serving a folder; tests.
 4. ✅ **Console:** the Assets page (channels, releases and their differences, rules, settings).
 5. ✅ **Dart SDK** (`winche_assets`): sync, cache, reads, streams; tests; README.
-6. **Functions:** `Winche.Functions.Assets` (`ctx.assets`, triggers); tests.
+6. ✅ **Functions:** `Winche.Functions.Assets` (`ctx.assets`, triggers); tests.
 7. **A first app:** its translations and media moved to an assets folder, the app on `winche_assets`.
 
 Each step is committed locally and released only when asked.

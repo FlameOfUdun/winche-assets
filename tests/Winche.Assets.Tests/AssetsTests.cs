@@ -33,6 +33,9 @@ public sealed class AssetsTests(PostgresFixture pg)
         Assert.Equal(2, (await assets.ChannelsAsync()).Single().Release);
         var history = await assets.HistoryAsync("production");
         Assert.Equal([(int?)1, null], history.Select(h => h.From));
+        var opened = (await assets.OpenAsync(2, "translations/de.json"))!.Value;   // the server's rights: no rules
+        using (var reader = new StreamReader(opened.Content)) Assert.Equal("{}", await reader.ReadToEndAsync());
+        Assert.Null(await assets.OpenAsync(1, "translations/de.json"));
         var diff = await assets.DiffAsync(1, 2);
         Assert.Equal(["translations/de.json"], diff.Added);
         Assert.Equal(["translations/en.json"], diff.Changed);

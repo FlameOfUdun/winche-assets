@@ -116,6 +116,31 @@ public sealed class WincheAssets(AssetStore store, AssetArchives archives, Asset
             [.. a.Files.Keys.Where(p => !b.Files.ContainsKey(p)).Order(StringComparer.Ordinal)]);
     }
 
+    /// <summary>A file of a release and its bytes, with the server's rights (no rules); null when the release hasn't it.</summary>
+    public async Task<(AssetFile File, Stream Content)?> OpenAsync(int release, string path, CancellationToken ct = default)
+    {
+        var r = await store.ReleaseAsync(release, ct) ?? throw new AssetsException("not-found", $"There's no release {release}.");
+        if (!r.Files.TryGetValue(path, out var file)) return null;
+        if (await archives.ActiveAsync(ct) is not IArchiveContent bytes) throw new AssetsException("failed-precondition", "This location can't hand bytes to the server.");
+        var stream = await bytes.OpenReadAsync(AssetPaths.ContentKey(file.Hash), ct)
+            ?? throw new AssetsException("unavailable", $"{path}'s content is missing from the location.");
+        return (file, stream);
+    }
+
+    /// <summary>A short-lived link to a file of a release, with the server's rights; null when the release hasn't it.</summary>
+    public async Task<Winche.Storage.Models.DownloadSession?> DownloadUrlAsync(int release, string path, CancellationToken ct = default)
+    {
+        var r = await store.ReleaseAsync(release, ct) ?? throw new AssetsException("not-found", $"There's no release {release}.");
+        if (!r.Files.TryGetValue(path, out var file)) return null;
+        var archive = await archives.ActiveAsync(ct);
+        try
+        {
+            return await archive.GenerateDownloadUrlAsync(AssetPaths.ContentKey(file.Hash),
+                new Winche.Storage.Models.DownloadHeaders(file.MimeType, null, "private, max-age=31536000, immutable"), ct);
+        }
+        catch (NotSupportedException) { throw new AssetsException("unimplemented", "This location makes no links."); }
+    }
+
     /// <summary>Where contents are kept, in words.</summary>
     public string Location => archives.Describe();
 }
