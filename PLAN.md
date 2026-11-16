@@ -25,7 +25,7 @@ publishes it from the server instead:
 | Content | the location, key `assets/{sha256}` | each file's bytes, stored once whatever the releases that use it |
 | Release | table `winche_asset_releases` | `number`, `note`, `by`, `at`, its files: path → `{ hash, size, mimeType }` |
 | Channel | table `winche_asset_channels` | `name` → release number, `updatedAt`, `by`, history of moves |
-| Rules | settings area `assets.rules` | versioned like the other products' rules (console editor, `winche assets rules deploy`) |
+| Rules | the console's rules store (subsystem `assets`) | versioned like the other products' rules (console editor, `winche assets rules deploy`) |
 | Location | settings area `assets.location` | as Storage's location settings |
 
 - Paths are relative, `/`-separated, no `.`/`..`, case-sensitive; up to 10,000 files and 512 MB per file per
