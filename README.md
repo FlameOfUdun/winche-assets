@@ -96,6 +96,8 @@ A release can name files kept on a CDN instead of storing them (large videos, sa
 the listing has only path, hash and size, each read is checked by the rules, and the answer is a link the CDN accepts
 for a few minutes, so the address alone gets nothing. Apps download, check and keep them like any other file.
 
+- **A public CDN** (`kind: "public"`) serves its files to anyone: apps get the address itself, so it's out of the
+  listing but not secret. Turning signing on later (CloudFront) changes nothing for apps.
 - **The CDN** signs links: CloudFront, with signed URLs required on the distribution and a key group it trusts. Set it
   in the console (Assets → Settings → CDNs: its base address, the public key's id, the private key as a value or a
   reference to AWS, how long links work), or in code with `UseCdn(new AssetCdn { Id, BaseUrl, KeyPairId }, privateKeyPem)`.

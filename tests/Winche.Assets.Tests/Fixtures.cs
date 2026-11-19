@@ -114,7 +114,7 @@ public sealed class AssetsApp : IAsyncDisposable
         """;
 
     public static async Task<AssetsApp> StartAsync(string db, bool links = false, bool settings = false, AssetLimits? limits = null,
-        FakeCdn? cdn = null)
+        FakeCdn? cdn = null, Action<WincheAssetsOptions>? configure = null, HttpMessageHandler? http = null)
     {
         var archive = new MemoryArchive(links);
         var b = WebApplication.CreateBuilder();
@@ -134,8 +134,9 @@ public sealed class AssetsApp : IAsyncDisposable
             if (limits is not null) o.Limits = limits;
             if (settings) o.UseSettings();
             if (cdn is not null) o.UseCdn(cdn.Cdn, cdn.PrivateKeyPem);
+            configure?.Invoke(o);
         });
-        if (cdn is not null) b.Services.AddSingleton(new AssetCdnHttp(new HttpClient(cdn)));
+        if (cdn is not null || http is not null) b.Services.AddSingleton(new AssetCdnHttp(new HttpClient(http ?? cdn!)));
         var app = b.Build();
         app.Use(async (ctx, next) =>
         {

@@ -27,8 +27,9 @@ public sealed record AssetCdnSettings
 }
 
 /// <summary>
-/// A CDN that signs its links: CloudFront (signed URLs with a canned policy). Its private key is the project secret
-/// <see cref="SecretName"/>, a value or a reference (<c>aws-sm:…</c>, <c>aws-ssm:…</c>).
+/// A CDN releases may name files on. <c>cloudfront</c>: apps get links it accepts for a few minutes (signed URLs with a
+/// canned policy; its private key is the project secret <see cref="SecretName"/>, a value or a reference such as
+/// <c>aws-sm:…</c>). <c>public</c>: a CDN that serves its files to anyone; apps get the address itself.
 /// </summary>
 public sealed record AssetCdn
 {
@@ -44,6 +45,9 @@ public sealed record AssetCdn
 
     public string SecretName => $"assets.cdn.{Id}.privateKey";
 
+    /// <summary>Whether its links are signed (else apps get the file's address as it is).</summary>
+    public bool Signs => Kind == "cloudfront";
+
     /// <summary>Whether <paramref name="url"/> is one of this CDN's files.</summary>
     public bool Serves(string url) =>
         Uri.TryCreate(url, UriKind.Absolute, out var u) && Uri.TryCreate(BaseUrl, UriKind.Absolute, out var b)
@@ -54,9 +58,9 @@ public sealed record AssetCdn
     {
         var p = new List<string>();
         if (string.IsNullOrWhiteSpace(Id) || Id.Length > 40 || Id.Any(c => !char.IsAsciiLetterOrDigit(c) && c != '-')) p.Add("Name it with letters, digits and -.");
-        if (Kind != "cloudfront") p.Add("Only CloudFront signs links here (kind \"cloudfront\").");
+        if (Kind is not ("cloudfront" or "public")) p.Add("A CDN is \"cloudfront\" (signed links) or \"public\" (its addresses as they are).");
         if (!Uri.TryCreate(BaseUrl, UriKind.Absolute, out var b) || b.Scheme != "https" || !string.IsNullOrEmpty(b.Query)) p.Add("The address is https://, with no query.");
-        if (string.IsNullOrWhiteSpace(KeyPairId)) p.Add("Give the key pair (public key) id.");
+        if (Kind == "cloudfront" && string.IsNullOrWhiteSpace(KeyPairId)) p.Add("Give the key pair (public key) id.");
         if (LinkMinutes is < 1 or > 60) p.Add("A link works 1 to 60 minutes.");
         return p;
     }
@@ -87,6 +91,7 @@ public sealed class AssetCdnSigner(SettingsArea<AssetCdnSettings>? area, IReadOn
     public async Task<(string Url, DateTimeOffset ExpiresAt)> SignAsync(string url, CancellationToken ct)
     {
         var cdn = For(url) ?? throw new AssetsException("failed-precondition", "No CDN set up in Assets settings serves this file.");
+        if (!cdn.Signs) return (url, time.GetUtcNow().AddDays(1));   // a public CDN: its address, for as long as a download takes
         var key = await KeyAsync(cdn, ct);
         var expires = time.GetUtcNow().AddMinutes(cdn.LinkMinutes);
         return (CloudFront.Sign(url, cdn.KeyPairId, key, expires), expires);

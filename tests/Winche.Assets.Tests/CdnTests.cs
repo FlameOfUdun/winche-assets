@@ -111,4 +111,36 @@ public sealed class CdnTests(PostgresFixture pg)
         Assert.Equal(rsa.ExportSubjectPublicKeyInfo(), back.ExportSubjectPublicKeyInfo());
         Assert.Equal(pem.Trim(), AssetCdnSigner.Pem(pem));
     }
+
+    [Fact]
+    public async Task A_public_cdn_hands_out_its_addresses_as_they_are()
+    {
+        var open = new PublicCdn();
+        var url = "https://media.example.com/app/bvm.mp4";
+        open.Files[url] = "the video"u8.ToArray();
+        var db = await pg.NewDatabaseAsync();
+        await using var app = await AssetsApp.StartAsync(db, cdn: null, configure: o => o.UseCdn(new AssetCdn { Id = "open", Kind = "public", BaseUrl = "https://media.example.com/app/" }),
+            http: open);
+        var assets = app.Service<WincheAssets>();
+        var seen = (await assets.InspectCdnFilesAsync([url])).Single();
+        Assert.Null(seen.Error);
+        await assets.PublishAsync(new AssetPublishRequest(new Dictionary<string, AssetFile> { ["videos/bvm.mp4"] = new(seen.Hash!, seen.Size, "", url) }, "x", "production"), "admin@x");
+        var link = await (await app.Http.SendAsync(Get("/assets/v1/channels/production/files/videos/bvm.mp4?link=true", uid: "ann"))).Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(url, link.GetProperty("url").GetString());
+        Assert.Throws<InvalidOperationException>(() => new WincheAssetsOptions().UseCdn(new AssetCdn { Id = "x", Kind = "s3", BaseUrl = "https://x.example.com/" }));
+    }
+
+    /// <summary>A CDN anyone may read: no signatures asked for.</summary>
+    private sealed class PublicCdn : HttpMessageHandler
+    {
+        public Dictionary<string, byte[]> Files { get; } = new(StringComparer.Ordinal);
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            if (!string.IsNullOrEmpty(request.RequestUri!.Query) || !Files.TryGetValue(request.RequestUri.ToString(), out var b))
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+            var r = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(request.Method == HttpMethod.Head ? [] : b) };
+            r.Headers.ETag = new System.Net.Http.Headers.EntityTagHeaderValue("\"p1\"");
+            return Task.FromResult(r);
+        }
+    }
 }
