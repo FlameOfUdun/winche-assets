@@ -82,6 +82,9 @@ winche assets releases | release <n> | channels
 winche assets channels:set production 41   # move a channel; an older release is a rollback
 ```
 
+Admins can also make a release in the console (Assets → Files → New release): it's marked `source: "console"`, and
+`winche assets deploy` asks before publishing a folder that would take files out of such a release.
+
 The console's Assets page shows the channels (with each one's history in the panel on the right), the releases and
 their files, what changed between two releases, the rules editor, and settings: limits and where contents are kept.
 Server code publishes with `WincheAssets` (`MissingAsync`, `PutContentAsync`, `PublishAsync`, `MoveChannelAsync`) and
