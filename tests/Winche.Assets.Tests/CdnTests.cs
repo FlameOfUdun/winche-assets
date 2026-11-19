@@ -99,4 +99,16 @@ public sealed class CdnTests(PostgresFixture pg)
         Assert.Equal(AssetPaths.Hash("a new cut"u8.ToArray()), again.Hash);
         Assert.Equal(2, cdn.Gets);
     }
+
+    [Fact]
+    public void A_pem_key_pasted_on_one_line_gets_its_line_breaks_back()
+    {
+        using var rsa = System.Security.Cryptography.RSA.Create(2048);
+        var pem = rsa.ExportPkcs8PrivateKeyPem();
+        var flat = pem.Replace("\n", " ");
+        using var back = System.Security.Cryptography.RSA.Create();
+        back.ImportFromPem(AssetCdnSigner.Pem(flat));
+        Assert.Equal(rsa.ExportSubjectPublicKeyInfo(), back.ExportSubjectPublicKeyInfo());
+        Assert.Equal(pem.Trim(), AssetCdnSigner.Pem(pem));
+    }
 }

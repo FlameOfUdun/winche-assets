@@ -100,6 +100,15 @@ public sealed class AssetCdnSigner(SettingsArea<AssetCdnSettings>? area, IReadOn
         return await http.SendAsync(new HttpRequestMessage(method, signed), HttpCompletionOption.ResponseHeadersRead, ct);
     }
 
+    /// <summary>A PEM key as kept: line breaks put back when it lost them (pasted on one line, or kept so in AWS).</summary>
+    public static string Pem(string text)
+    {
+        text = text.Trim();
+        if (text.Contains('\n')) return text;
+        return System.Text.RegularExpressions.Regex.Replace(text, @"^(-----BEGIN [A-Z ]+-----)\s*(.*?)\s*(-----END [A-Z ]+-----)$", m =>
+            $"{m.Groups[1].Value}\n{System.Text.RegularExpressions.Regex.Replace(m.Groups[2].Value, @"\s+", "\n")}\n{m.Groups[3].Value}");
+    }
+
     private async Task<RSA> KeyAsync(AssetCdn cdn, CancellationToken ct)
     {
         var pem = code.FirstOrDefault(c => c.Cdn.Id == cdn.Id && c.PrivateKey is not null).PrivateKey;
@@ -113,7 +122,7 @@ public sealed class AssetCdnSigner(SettingsArea<AssetCdnSettings>? area, IReadOn
         var stamp = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(pem)));
         if (_keys.TryGetValue(cdn.Id, out var hit) && hit.Stamp == stamp) return hit.Key;
         var rsa = RSA.Create();
-        try { rsa.ImportFromPem(pem); }
+        try { rsa.ImportFromPem(Pem(pem)); }
         catch (ArgumentException) { rsa.Dispose(); throw new AssetsException("failed-precondition", $"{cdn.Id}'s private key isn't an RSA key in PEM."); }
         _keys[cdn.Id] = (stamp, rsa);
         return rsa;
