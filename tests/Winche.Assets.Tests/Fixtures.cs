@@ -1,3 +1,4 @@
+using System.Net;
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using Microsoft.AspNetCore.Builder;
@@ -112,7 +113,8 @@ public sealed class AssetsApp : IAsyncDisposable
         match staff/{rest=**} { allow get: if request.auth.token.role == 'staff'; }
         """;
 
-    public static async Task<AssetsApp> StartAsync(string db, bool links = false, bool settings = false, AssetLimits? limits = null)
+    public static async Task<AssetsApp> StartAsync(string db, bool links = false, bool settings = false, AssetLimits? limits = null,
+        FakeCdn? cdn = null)
     {
         var archive = new MemoryArchive(links);
         var b = WebApplication.CreateBuilder();
@@ -131,7 +133,9 @@ public sealed class AssetsApp : IAsyncDisposable
             o.UseRulesText(Rules);
             if (limits is not null) o.Limits = limits;
             if (settings) o.UseSettings();
+            if (cdn is not null) o.UseCdn(cdn.Cdn, cdn.PrivateKeyPem);
         });
+        if (cdn is not null) b.Services.AddSingleton(new AssetCdnHttp(new HttpClient(cdn)));
         var app = b.Build();
         app.Use(async (ctx, next) =>
         {
@@ -164,5 +168,46 @@ public sealed class AssetsApp : IAsyncDisposable
     {
         await _app.StopAsync();
         await _app.DisposeAsync();
+    }
+}
+
+/// <summary>
+/// A CloudFront stand-in: files by address, served only to requests whose canned-policy signature checks out with the
+/// key pair's public key and hasn't expired (else 403, as CloudFront does). Counts the GETs it answers.
+/// </summary>
+public sealed class FakeCdn : HttpMessageHandler
+{
+    private readonly System.Security.Cryptography.RSA _key = System.Security.Cryptography.RSA.Create(2048);
+    public ConcurrentDictionary<string, (byte[] Bytes, string ETag)> Files { get; } = new(StringComparer.Ordinal);
+    public int Gets;
+    public DateTimeOffset Now { get; set; } = DateTimeOffset.UtcNow;
+    public AssetCdn Cdn { get; } = new() { Id = "media", BaseUrl = "https://cdn.example.com/app/", KeyPairId = "K2TESTKEY" };
+    public string PrivateKeyPem => _key.ExportPkcs8PrivateKeyPem();
+
+    public void Put(string url, string text, string etag) => Files[url] = (System.Text.Encoding.UTF8.GetBytes(text), etag);
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+    {
+        var uri = request.RequestUri!;
+        var url = uri.GetLeftPart(UriPartial.Path);
+        var q = System.Web.HttpUtility.ParseQueryString(uri.Query);
+        if (!Verifies(url, q["Expires"], q["Signature"], q["Key-Pair-Id"])) return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden));
+        if (!Files.TryGetValue(url, out var f)) return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+        var r = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(request.Method == HttpMethod.Head ? [] : f.Bytes) };
+        r.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("video/mp4");
+        r.Headers.ETag = new System.Net.Http.Headers.EntityTagHeaderValue(f.ETag);
+        if (request.Method == HttpMethod.Get) Interlocked.Increment(ref Gets);
+        return Task.FromResult(r);
+    }
+
+    /// <summary>Whether a link is one this CDN accepts now.</summary>
+    public bool Verifies(string url, string? expires, string? signature, string? keyPairId)
+    {
+        if (keyPairId != Cdn.KeyPairId || !long.TryParse(expires, out var epoch) || signature is null) return false;
+        if (DateTimeOffset.FromUnixTimeSeconds(epoch) <= Now) return false;
+        var policy = "{\"Statement\":[{\"Resource\":\"" + url + "\",\"Condition\":{\"DateLessThan\":{\"AWS:EpochTime\":" + epoch + "}}}]}";
+        var bytes = Convert.FromBase64String(signature.Replace('-', '+').Replace('_', '=').Replace('~', '/'));
+        return _key.VerifyData(System.Text.Encoding.UTF8.GetBytes(policy), bytes, System.Security.Cryptography.HashAlgorithmName.SHA1,
+            System.Security.Cryptography.RSASignaturePadding.Pkcs1);
     }
 }

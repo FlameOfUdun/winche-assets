@@ -9,9 +9,23 @@ namespace Winche.Assets;
 /// Publishing and managing assets, with the server's rights (no rules): contents in, releases out, channels moved.
 /// Used by the console API and CI deploys; apps read through <see cref="AssetReader"/>.
 /// </summary>
-public sealed class WincheAssets(AssetStore store, AssetArchives archives, AssetSettings settings, IServiceProvider services, TimeProvider time)
+public sealed class WincheAssets(AssetStore store, AssetArchives archives, AssetSettings settings, AssetCdnSigner cdns, AssetCdnFiles cdnFiles,
+    IServiceProvider services, TimeProvider time)
 {
     public AssetLimits Limits => settings.Limits;
+
+    /// <summary>The CDNs a release may name files on.</summary>
+    public IReadOnlyList<AssetCdn> Cdns => cdns.Cdns;
+
+    /// <summary>
+    /// CDN files by address: each one's hash and size, read through a signed link when it's new or changed (an unchanged
+    /// one is answered from what was read before). Publishing names CDN files with these.
+    /// </summary>
+    public Task<IReadOnlyList<AssetCdnFile>> InspectCdnFilesAsync(IReadOnlyList<string> urls, CancellationToken ct = default)
+    {
+        if (urls.Count > Limits.MaxFilesPerRelease) throw new AssetsException("invalid-argument", $"A release has at most {Limits.MaxFilesPerRelease} files.");
+        return cdnFiles.InspectAsync(urls, ct);
+    }
 
     /// <summary>Which of these contents the location doesn't have yet.</summary>
     public Task<IReadOnlyList<string>> MissingAsync(IReadOnlyCollection<string> hashes, CancellationToken ct = default)
@@ -70,14 +84,22 @@ public sealed class WincheAssets(AssetStore store, AssetArchives archives, Asset
         {
             if (AssetPaths.PathProblem(path) is { } bad) problems.Add($"{path}: {bad}.");
             if (!AssetPaths.IsHash(f.Hash)) problems.Add($"{path}: the hash is SHA-256 in lowercase hex.");
-            if (f.Size < 0 || f.Size > Limits.MaxFileBytes) problems.Add($"{path} is larger than {Limits.MaxFileBytes / 1024 / 1024} MB.");
+            if (f.Url is { } url)
+            {
+                // On a CDN: its size is the CDN's business, but the hash must be what the server read there.
+                if (cdns.For(url) is null) problems.Add($"{path}: no CDN set up in Assets settings serves {url}.");
+                else if (AssetPaths.IsHash(f.Hash) && !await cdnFiles.KnownAsync(url, f.Hash, ct)) problems.Add($"{path}: {url} hasn't been read with this hash (inspect it first).");
+                if (f.Size < 0) problems.Add($"{path}: the size can't be negative.");
+            }
+            else if (f.Size < 0 || f.Size > Limits.MaxFileBytes) problems.Add($"{path} is larger than {Limits.MaxFileBytes / 1024 / 1024} MB.");
         }
         if (request.Channel is { } c && AssetPaths.ChannelProblem(c) is { } badChannel) problems.Add($"{c}: {badChannel}.");
         if (request.Note is { Length: > 500 }) problems.Add("A note is up to 500 characters.");
         if (problems.Count > 0) throw new AssetsException("invalid-argument", "This release can't be published.", problems.Take(50).ToList());
-        if (await store.MissingAsync([.. request.Files.Values.Select(f => f.Hash)], ct) is { Count: > 0 } missing)
+        var stored = request.Files.Where(f => f.Value.Url is null).ToList();
+        if (await store.MissingAsync([.. stored.Select(f => f.Value.Hash)], ct) is { Count: > 0 } missing)
             throw new AssetsException("failed-precondition", "Some contents haven't been sent.",
-                [.. request.Files.Where(f => missing.Contains(f.Value.Hash)).Select(f => f.Key).Take(50)]);
+                [.. stored.Where(f => missing.Contains(f.Value.Hash)).Select(f => f.Key).Take(50)]);
         var files = request.Files.ToDictionary(f => f.Key,
             f => f.Value with { MimeType = string.IsNullOrWhiteSpace(f.Value.MimeType) ? AssetPaths.MimeTypeOf(f.Key) : f.Value.MimeType }, StringComparer.Ordinal);
         var release = await store.AddReleaseAsync(files, request.Note?.Trim(), by, request.Channel, time.GetUtcNow(), ct);
@@ -121,6 +143,16 @@ public sealed class WincheAssets(AssetStore store, AssetArchives archives, Asset
     {
         var r = await store.ReleaseAsync(release, ct) ?? throw new AssetsException("not-found", $"There's no release {release}.");
         if (!r.Files.TryGetValue(path, out var file)) return null;
+        if (file.Url is { } url)
+        {
+            var response = await cdns.GetAsync(url, HttpMethod.Get, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                response.Dispose();
+                throw new AssetsException("unavailable", $"{path}: the CDN answered {(int)response.StatusCode}.");
+            }
+            return (file, await response.Content.ReadAsStreamAsync(ct));
+        }
         if (await archives.ActiveAsync(ct) is not IArchiveContent bytes) throw new AssetsException("failed-precondition", "This location can't hand bytes to the server.");
         var stream = await bytes.OpenReadAsync(AssetPaths.ContentKey(file.Hash), ct)
             ?? throw new AssetsException("unavailable", $"{path}'s content is missing from the location.");
@@ -132,6 +164,11 @@ public sealed class WincheAssets(AssetStore store, AssetArchives archives, Asset
     {
         var r = await store.ReleaseAsync(release, ct) ?? throw new AssetsException("not-found", $"There's no release {release}.");
         if (!r.Files.TryGetValue(path, out var file)) return null;
+        if (file.Url is { } url)
+        {
+            var (signed, expires) = await cdns.SignAsync(url, ct);
+            return new Winche.Storage.Models.DownloadSession { Url = signed, ExpiresAt = expires.UtcDateTime };
+        }
         var archive = await archives.ActiveAsync(ct);
         try
         {

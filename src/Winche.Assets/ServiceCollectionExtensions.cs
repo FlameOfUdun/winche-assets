@@ -22,6 +22,7 @@ public sealed class WincheAssetsOptions
     internal Func<IServiceProvider, IArchive>? Archive { get; private set; }
     internal List<RuleSet> Rulesets { get; } = [];
     internal bool SettingsEnabled { get; private set; }
+    internal List<(AssetCdn Cdn, string? PrivateKey)> Cdns { get; } = [];
     internal bool Stream { get; private set; }
 
     /// <summary>
@@ -32,6 +33,17 @@ public sealed class WincheAssetsOptions
 
     /// <summary>Lets the console change the limits and move contents to another location (needs AddWincheConfig to save).</summary>
     public WincheAssetsOptions UseSettings() { SettingsEnabled = true; return this; }
+
+    /// <summary>
+    /// A CDN releases may name files on, from code (the console's Assets settings → CDNs replace these when it has
+    /// any). <paramref name="privateKeyPem"/>: the RSA key it signs links with; null reads the secret <see cref="AssetCdn.SecretName"/>.
+    /// </summary>
+    public WincheAssetsOptions UseCdn(AssetCdn cdn, string? privateKeyPem = null)
+    {
+        if (cdn.Problems() is { Count: > 0 } p) throw new InvalidOperationException($"CDN {cdn.Id}: {string.Join(" ", p)}");
+        Cdns.Add((cdn, privateKeyPem));
+        return this;
+    }
 
     /// <summary>Files are sent by the server instead of through a signed link to the location.</summary>
     public WincheAssetsOptions StreamFiles() { Stream = true; return this; }
@@ -82,11 +94,16 @@ public static class AssetsServiceCollectionExtensions
 
         SettingsArea<AssetLimits>? limits = null;
         SettingsArea<AssetLocationSettings>? location = null;
+        SettingsArea<AssetCdnSettings>? cdns = null;
         if (options.SettingsEnabled)
         {
             limits = services.AddWincheSettingsArea("assets", "Assets", options.Limits, s => s.Problems());
             location = services.AddWincheSettingsArea(AssetLocationSettings.Area, "Assets location", new AssetLocationSettings(), s => s.Problems());
+            cdns = services.AddWincheSettingsArea(AssetCdnSettings.Area, "Assets CDNs", new AssetCdnSettings(), s => s.Problems());
         }
+        services.TryAddSingleton(new AssetCdnHttp(new HttpClient { Timeout = TimeSpan.FromHours(1) }));
+        services.AddSingleton(sp => new AssetCdnSigner(cdns, options.Cdns, sp, sp.GetRequiredService<TimeProvider>()));
+        services.AddSingleton<AssetCdnFiles>();
         services.AddSingleton(new AssetSettings(limits, options.Limits, options.Stream));
         services.AddSingleton(sp =>
         {
@@ -99,7 +116,8 @@ public static class AssetsServiceCollectionExtensions
         services.AddSingleton<WincheAssets>();
         services.AddSingleton<AssetSweep>();
         services.AddSingleton(sp => new AssetReader(sp.GetRequiredService<AssetStore>(), sp.GetRequiredService<AssetArchives>(),
-            sp.GetRequiredKeyedService<RuleEngine>(RulesKey), () => WincheCaller.Claims, sp.GetRequiredService<AssetSettings>()));
+            sp.GetRequiredKeyedService<RuleEngine>(RulesKey), () => WincheCaller.Claims, sp.GetRequiredService<AssetSettings>(),
+            sp.GetRequiredService<AssetCdnSigner>()));
         services.AddSingleton<IWincheProductSetup, AssetsProductSetup>();
         services.AddWincheProductService<AssetSweepService>(Product);
         if (options.SettingsEnabled) services.AddWincheProductService<AssetMoveWorker>(Product);

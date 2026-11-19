@@ -2,11 +2,15 @@ using System.Text.Json.Serialization;
 
 namespace Winche.Assets;
 
-/// <summary>A file of a release: its content's SHA-256 (lowercase hex), size and type.</summary>
+/// <summary>
+/// A file of a release: its content's SHA-256 (lowercase hex), size and type. <see cref="Url"/> is set for a file kept
+/// on a CDN instead of here: apps never see it, they get a short-lived signed link.
+/// </summary>
 public sealed record AssetFile(
     [property: JsonPropertyName("hash")] string Hash,
     [property: JsonPropertyName("size")] long Size,
-    [property: JsonPropertyName("mimeType")] string MimeType);
+    [property: JsonPropertyName("mimeType")] string MimeType,
+    [property: JsonPropertyName("url"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Url = null);
 
 /// <summary>A published release: numbered, never changed.</summary>
 public sealed record AssetRelease(int Number, string? Note, string? By, DateTimeOffset At, IReadOnlyDictionary<string, AssetFile> Files)

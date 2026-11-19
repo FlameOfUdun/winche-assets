@@ -17,7 +17,8 @@ public sealed record AssetDownload(AssetFile File, string? Url, Func<Cancellatio
 /// (that they may <c>get</c>). Rules see the file as <c>resource</c> (path, size, mimeType, hash, release, channel), the
 /// path's captures, and <c>request.auth</c>.
 /// </summary>
-public sealed class AssetReader(AssetStore store, AssetArchives archives, RuleEngine rules, Func<IReadOnlyDictionary<string, object?>?> claims, AssetSettings settings)
+public sealed class AssetReader(AssetStore store, AssetArchives archives, RuleEngine rules, Func<IReadOnlyDictionary<string, object?>?> claims, AssetSettings settings,
+    AssetCdnSigner cdns)
 {
     public async Task<AssetListing> ListingAsync(string channel, CancellationToken ct = default)
     {
@@ -42,6 +43,12 @@ public sealed class AssetReader(AssetStore store, AssetArchives archives, RuleEn
         var r = await store.ReleaseAsync(release, ct) ?? throw new AssetsException("not-found", $"There's no release {release}.");
         if (!r.Files.TryGetValue(path, out var file)) throw new AssetsException("not-found", $"There's no {path} in release {release}.");
         if (!await AllowsAsync(RuleOperation.Get, path, file, release, channel, ct)) throw new AssetsException("permission-denied", $"You may not read {path}.");
+        if (file.Url is { } url)
+        {
+            // On a CDN: a link it accepts for a few minutes (its address alone gets nothing).
+            var (signed, expires) = await cdns.SignAsync(url, ct);
+            return new AssetDownload(file, signed, null, expires);
+        }
         var archive = await archives.ActiveAsync(ct);
         var key = AssetPaths.ContentKey(file.Hash);
         if (!settings.StreamFiles)

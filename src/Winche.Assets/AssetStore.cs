@@ -44,6 +44,18 @@ public sealed class AssetStore([FromKeyedServices(AssetStore.DataSourceKey)] Npg
             );
             CREATE INDEX IF NOT EXISTS winche_asset_channel_moves_channel ON winche_asset_channel_moves (channel, id DESC);
         """,
+        """
+            CREATE TABLE IF NOT EXISTS winche_asset_cdn_files (
+              url text NOT NULL,
+              version text NOT NULL,
+              hash text NOT NULL,
+              size bigint NOT NULL,
+              mime_type text NULL,
+              read_at timestamptz NOT NULL,
+              PRIMARY KEY (url, version)
+            );
+            CREATE INDEX IF NOT EXISTS winche_asset_cdn_files_hash ON winche_asset_cdn_files (url, hash);
+        """,
     ];
 
     public async Task InitializeAsync(CancellationToken ct = default)
@@ -51,6 +63,43 @@ public sealed class AssetStore([FromKeyedServices(AssetStore.DataSourceKey)] Npg
         if (_ready) return;
         await WincheSchema.EnsureAsync(db, "assets", Steps, ct);
         _ready = true;
+    }
+
+    // ── CDN files ───────────────────────────────────────────────────────────
+
+    internal async Task<AssetCdnFile?> CdnFileAsync(string url, string version, CancellationToken ct)
+    {
+        await InitializeAsync(ct);
+        await using var cmd = db.CreateCommand("SELECT hash, size, mime_type FROM winche_asset_cdn_files WHERE url = $1 AND version = $2");
+        cmd.Parameters.AddWithValue(url);
+        cmd.Parameters.AddWithValue(version);
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+        return await r.ReadAsync(ct) ? new AssetCdnFile(url, r.GetString(0), r.GetInt64(1), r.IsDBNull(2) ? null : r.GetString(2)) : null;
+    }
+
+    internal async Task AddCdnFileAsync(AssetCdnFile file, string version, DateTimeOffset at, CancellationToken ct)
+    {
+        await InitializeAsync(ct);
+        await using var cmd = db.CreateCommand("""
+            INSERT INTO winche_asset_cdn_files (url, version, hash, size, mime_type, read_at) VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (url, version) DO UPDATE SET hash = excluded.hash, size = excluded.size, mime_type = excluded.mime_type, read_at = excluded.read_at
+            """);
+        cmd.Parameters.AddWithValue(file.Url);
+        cmd.Parameters.AddWithValue(version);
+        cmd.Parameters.AddWithValue(file.Hash!);
+        cmd.Parameters.AddWithValue(file.Size);
+        cmd.Parameters.AddWithValue((object?)file.MimeType ?? DBNull.Value);
+        cmd.Parameters.AddWithValue(at);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    internal async Task<bool> CdnFileKnownAsync(string url, string hash, CancellationToken ct)
+    {
+        await InitializeAsync(ct);
+        await using var cmd = db.CreateCommand("SELECT 1 FROM winche_asset_cdn_files WHERE url = $1 AND hash = $2 LIMIT 1");
+        cmd.Parameters.AddWithValue(url);
+        cmd.Parameters.AddWithValue(hash);
+        return await cmd.ExecuteScalarAsync(ct) is not null;
     }
 
     // ── contents ────────────────────────────────────────────────────────────

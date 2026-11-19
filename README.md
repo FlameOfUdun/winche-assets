@@ -72,7 +72,7 @@ prefetched paths are downloaded with each release before it's used, everything e
 
 ## Publishing
 
-From the [CLI](https://github.com/FlameOfUdun/winche-cli), as you or with a CI token that has the `assets` scope:
+From the [CLI](https://github.com/FlameOfUdun/winche-cli), as you or as a service account with the `assets` scope:
 
 ```sh
 winche assets init                         # an assets/ folder, assets.rules and its tests, added to winche.json
@@ -86,6 +86,27 @@ The console's Assets page shows the channels (with each one's history in the pan
 their files, what changed between two releases, the rules editor, and settings: limits and where contents are kept.
 Server code publishes with `WincheAssets` (`MissingAsync`, `PutContentAsync`, `PublishAsync`, `MoveChannelAsync`) and
 reads with `ReleaseAsync` / `OpenAsync`.
+
+## Files on a CDN
+
+A release can name files kept on a CDN instead of storing them (large videos, say). Apps never see the CDN's address:
+the listing has only path, hash and size, each read is checked by the rules, and the answer is a link the CDN accepts
+for a few minutes, so the address alone gets nothing. Apps download, check and keep them like any other file.
+
+- **The CDN** signs links: CloudFront, with signed URLs required on the distribution and a key group it trusts. Set it
+  in the console (Assets → Settings → CDNs: its base address, the public key's id, the private key as a value or a
+  reference to AWS, how long links work), or in code with `UseCdn(new AssetCdn { Id, BaseUrl, KeyPairId }, privateKeyPem)`.
+- **Publishing** names them by address in `assets.cdn.json` beside `winche.json`; `winche assets deploy` publishes them
+  with the folder, uploading nothing for them:
+
+  ```json
+  { "files": { "videos/adult/bvm.mp4": "https://cdn.example.com/app/adult/bvm.mp4" } }
+  ```
+
+  The server reads each new or changed one once through a signed link (by its ETag) and keeps its hash; a release
+  takes only hashes it read. Server code does the same with `InspectCdnFilesAsync` and `AssetFile.Url`.
+- **Keep CDN files unchanged:** a release names a file's content by hash, so replacing a file at the same address breaks
+  that release's downloads (apps refuse what doesn't match). Give a new cut a new address, then publish.
 
 ## License
 
