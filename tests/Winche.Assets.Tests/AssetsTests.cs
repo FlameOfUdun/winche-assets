@@ -41,6 +41,13 @@ public sealed class AssetsTests(PostgresFixture pg)
         Assert.Equal(["translations/en.json"], diff.Changed);
         Assert.Empty(diff.Removed);
         Assert.Equal(2, app.Changes.All.Count(c => c.Type == "released"));
+
+        // Where a release was made: the console's are marked, a deploy's aren't.
+        var fromConsole = await assets.PublishAsync(new AssetPublishRequest(r2.Files, "a fix", "production", "console"), "ann@x");
+        Assert.Equal("console", (await assets.ReleaseAsync(fromConsole.Number))!.Source);
+        Assert.Null((await assets.ReleaseAsync(2))!.Source);
+        Assert.Equal("console", (await assets.ReleasesAsync()).First().Source);
+        await Assert.ThrowsAsync<AssetsException>(() => assets.PublishAsync(new AssetPublishRequest(r2.Files, "x", null, "elsewhere"), "ann@x"));
     }
 
     [Fact]

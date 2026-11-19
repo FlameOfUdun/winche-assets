@@ -12,14 +12,14 @@ public sealed record AssetFile(
     [property: JsonPropertyName("mimeType")] string MimeType,
     [property: JsonPropertyName("url"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Url = null);
 
-/// <summary>A published release: numbered, never changed.</summary>
-public sealed record AssetRelease(int Number, string? Note, string? By, DateTimeOffset At, IReadOnlyDictionary<string, AssetFile> Files)
+/// <summary>A published release: numbered, never changed. <see cref="Source"/>: where it was made ("console"; null: a deploy).</summary>
+public sealed record AssetRelease(int Number, string? Note, string? By, DateTimeOffset At, IReadOnlyDictionary<string, AssetFile> Files, string? Source = null)
 {
     public long TotalSize => Files.Values.Sum(f => f.Size);
 }
 
 /// <summary>A release without its files (for listings).</summary>
-public sealed record AssetReleaseSummary(int Number, string? Note, string? By, DateTimeOffset At, int FileCount, long TotalSize);
+public sealed record AssetReleaseSummary(int Number, string? Note, string? By, DateTimeOffset At, int FileCount, long TotalSize, string? Source = null);
 
 /// <summary>A named pointer to a release that apps read (production, beta, …).</summary>
 public sealed record AssetChannel(string Name, int Release, DateTimeOffset UpdatedAt, string? By);
@@ -31,7 +31,7 @@ public sealed record AssetChannelMove(string Channel, int? From, int To, DateTim
 public sealed record AssetReleaseDiff(IReadOnlyList<string> Added, IReadOnlyList<string> Changed, IReadOnlyList<string> Removed);
 
 /// <summary>What publishing takes: the files by path (contents sent beforehand), a note, and optionally a channel to move.</summary>
-public sealed record AssetPublishRequest(IReadOnlyDictionary<string, AssetFile> Files, string? Note, string? Channel = null);
+public sealed record AssetPublishRequest(IReadOnlyDictionary<string, AssetFile> Files, string? Note, string? Channel = null, string? Source = null);
 
 /// <summary>A refusal with one of the shared error codes (invalid-argument, not-found, failed-precondition, …).</summary>
 public sealed class AssetsException(string code, string message, IReadOnlyList<string>? problems = null) : Exception(message)

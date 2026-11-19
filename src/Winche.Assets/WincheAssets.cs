@@ -95,6 +95,7 @@ public sealed class WincheAssets(AssetStore store, AssetArchives archives, Asset
         }
         if (request.Channel is { } c && AssetPaths.ChannelProblem(c) is { } badChannel) problems.Add($"{c}: {badChannel}.");
         if (request.Note is { Length: > 500 }) problems.Add("A note is up to 500 characters.");
+        if (request.Source is not (null or "console")) problems.Add("A release is made in the console (source \"console\") or by a deploy (no source).");
         if (problems.Count > 0) throw new AssetsException("invalid-argument", "This release can't be published.", problems.Take(50).ToList());
         var stored = request.Files.Where(f => f.Value.Url is null).ToList();
         if (await store.MissingAsync([.. stored.Select(f => f.Value.Hash)], ct) is { Count: > 0 } missing)
@@ -102,7 +103,7 @@ public sealed class WincheAssets(AssetStore store, AssetArchives archives, Asset
                 [.. stored.Where(f => missing.Contains(f.Value.Hash)).Select(f => f.Key).Take(50)]);
         var files = request.Files.ToDictionary(f => f.Key,
             f => f.Value with { MimeType = string.IsNullOrWhiteSpace(f.Value.MimeType) ? AssetPaths.MimeTypeOf(f.Key) : f.Value.MimeType }, StringComparer.Ordinal);
-        var release = await store.AddReleaseAsync(files, request.Note?.Trim(), by, request.Channel, time.GetUtcNow(), ct);
+        var release = await store.AddReleaseAsync(files, request.Note?.Trim(), by, request.Channel, time.GetUtcNow(), ct, request.Source);
         await AssetChanges.ReleasedAsync(services, release, request.Channel, ct);
         return release;
     }

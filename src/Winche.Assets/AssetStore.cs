@@ -56,6 +56,9 @@ public sealed class AssetStore([FromKeyedServices(AssetStore.DataSourceKey)] Npg
             );
             CREATE INDEX IF NOT EXISTS winche_asset_cdn_files_hash ON winche_asset_cdn_files (url, hash);
         """,
+        """
+            ALTER TABLE winche_asset_releases ADD COLUMN IF NOT EXISTS source text NULL;
+        """,
     ];
 
     public async Task InitializeAsync(CancellationToken ct = default)
@@ -164,7 +167,8 @@ public sealed class AssetStore([FromKeyedServices(AssetStore.DataSourceKey)] Npg
     // ── releases ────────────────────────────────────────────────────────────
 
     /// <summary>Adds the next release (and moves <paramref name="channel"/> to it), in one transaction.</summary>
-    internal async Task<AssetRelease> AddReleaseAsync(IReadOnlyDictionary<string, AssetFile> files, string? note, string? by, string? channel, DateTimeOffset at, CancellationToken ct)
+    internal async Task<AssetRelease> AddReleaseAsync(IReadOnlyDictionary<string, AssetFile> files, string? note, string? by, string? channel, DateTimeOffset at, CancellationToken ct,
+        string? source = null)
     {
         await InitializeAsync(ct);
         await using var conn = await db.OpenConnectionAsync(ct);
@@ -172,30 +176,31 @@ public sealed class AssetStore([FromKeyedServices(AssetStore.DataSourceKey)] Npg
         await using (var lockCmd = new NpgsqlCommand("LOCK TABLE winche_asset_releases IN SHARE ROW EXCLUSIVE MODE", conn, tx)) await lockCmd.ExecuteNonQueryAsync(ct);
         int number;
         await using (var cmd = new NpgsqlCommand("""
-            INSERT INTO winche_asset_releases (number, note, published_by, published_at, files)
-            SELECT coalesce(max(number), 0) + 1, $1, $2, $3, $4 FROM winche_asset_releases RETURNING number
+            INSERT INTO winche_asset_releases (number, note, published_by, published_at, files, source)
+            SELECT coalesce(max(number), 0) + 1, $1, $2, $3, $4, $5 FROM winche_asset_releases RETURNING number
             """, conn, tx))
         {
             cmd.Parameters.AddWithValue((object?)note ?? DBNull.Value);
             cmd.Parameters.AddWithValue((object?)by ?? DBNull.Value);
             cmd.Parameters.AddWithValue(at);
             cmd.Parameters.AddWithValue(NpgsqlDbType.Jsonb, JsonSerializer.Serialize(files, Json));
+            cmd.Parameters.AddWithValue((object?)source ?? DBNull.Value);
             number = (int)(await cmd.ExecuteScalarAsync(ct))!;
         }
         if (channel is not null) await MoveAsync(conn, tx, channel, number, by, at, ct);
         await tx.CommitAsync(ct);
-        return new AssetRelease(number, note, by, at, files);
+        return new AssetRelease(number, note, by, at, files, source);
     }
 
     public async Task<AssetRelease?> ReleaseAsync(int number, CancellationToken ct)
     {
         await InitializeAsync(ct);
-        await using var cmd = db.CreateCommand("SELECT number, note, published_by, published_at, files FROM winche_asset_releases WHERE number = $1");
+        await using var cmd = db.CreateCommand("SELECT number, note, published_by, published_at, files, source FROM winche_asset_releases WHERE number = $1");
         cmd.Parameters.AddWithValue(number);
         await using var r = await cmd.ExecuteReaderAsync(ct);
         if (!await r.ReadAsync(ct)) return null;
         return new AssetRelease(r.GetInt32(0), r.IsDBNull(1) ? null : r.GetString(1), r.IsDBNull(2) ? null : r.GetString(2), r.GetFieldValue<DateTimeOffset>(3),
-            JsonSerializer.Deserialize<Dictionary<string, AssetFile>>(r.GetString(4), Json)!);
+            JsonSerializer.Deserialize<Dictionary<string, AssetFile>>(r.GetString(4), Json)!, r.IsDBNull(5) ? null : r.GetString(5));
     }
 
     /// <summary>Releases, newest first, without their files.</summary>
@@ -204,7 +209,7 @@ public sealed class AssetStore([FromKeyedServices(AssetStore.DataSourceKey)] Npg
         await InitializeAsync(ct);
         await using var cmd = db.CreateCommand("""
             SELECT number, note, published_by, published_at,
-                   (SELECT count(*) FROM jsonb_each(files)), (SELECT coalesce(sum((value->>'size')::bigint), 0) FROM jsonb_each(files))
+                   (SELECT count(*) FROM jsonb_each(files)), (SELECT coalesce(sum((value->>'size')::bigint), 0) FROM jsonb_each(files)), source
             FROM winche_asset_releases ORDER BY number DESC LIMIT $1
             """);
         cmd.Parameters.AddWithValue(limit);
@@ -212,7 +217,7 @@ public sealed class AssetStore([FromKeyedServices(AssetStore.DataSourceKey)] Npg
         await using var r = await cmd.ExecuteReaderAsync(ct);
         while (await r.ReadAsync(ct))
             list.Add(new(r.GetInt32(0), r.IsDBNull(1) ? null : r.GetString(1), r.IsDBNull(2) ? null : r.GetString(2), r.GetFieldValue<DateTimeOffset>(3),
-                (int)r.GetInt64(4), Convert.ToInt64(r.GetValue(5))));
+                (int)r.GetInt64(4), Convert.ToInt64(r.GetValue(5)), r.IsDBNull(6) ? null : r.GetString(6)));
         return list;
     }
 
